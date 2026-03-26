@@ -1,6 +1,6 @@
 # 🤖 Nero Agent — Assistente Pessoal de IA por Voz
 
-Assistente pessoal de IA ativado por voz, com **inteligência autônoma** via Groq (Llama 3.1 8B), **memória de longo prazo** e **9 ferramentas** que ele decide sozinho quando usar.
+Assistente pessoal de IA ativado por voz, com **inteligência autônoma** via Groq (Llama 3.1 8B), **memória de longo prazo** e **12 ferramentas** que ele decide sozinho quando usar.
 
 > Fala Português do Brasil 🇧🇷 · Voz neural Edge TTS · Roda 100% local no Windows
 
@@ -20,21 +20,24 @@ Assistente pessoal de IA ativado por voz, com **inteligência autônoma** via Gr
 - **Interrupção por voz** — Fale durante a resposta para interromper imediatamente
 - **Microfone persistente** — Zero latência de hardware (mic aberto durante toda a sessão)
 
-### 🛠️ 9 Ferramentas Autônomas
+### 🛠️ 12 Ferramentas Autônomas
 
 O Nero decide sozinho quando usar cada ferramenta:
 
 | Ferramenta | Comando exemplo |
 |------------|----------------|
-| 🎵 YouTube | *"toca Red Hot no YouTube"* |
-| ⏯️ Controle de Mídia | *"pausa a música"* / *"próxima faixa"* |
-| 🕐 Data e Hora | *"que horas são?"* / *"que dia é hoje?"* |
+| 🎵 Tocar no YouTube | *"toca Red Hot no YouTube"* |
+| ⏯️ Controlar Mídia | *"pausa a música"* / *"próxima faixa"* |
+| 🔊 Alterar Volume | *"aumenta o volume"* / *"mutar"* |
+| 💻 Abrir Programa | *"abre a calculadora"* |
+| ❌ Fechar Programa | *"fecha o bloco de notas"* |
+| 📰 Notícias do Dia | *"quais são as notícias de hoje?"* |
+|  Data e Hora | *"que horas são?"* / *"que dia é hoje?"* |
 | 🌤️ Clima | *"como está o clima em São Paulo?"* |
 | 🔍 Pesquisa Web | *"pesquisa sobre inteligência artificial"* |
-| 🌐 Navegador | *"abre o GitHub"* |
-| 💻 Programas | *"abre a calculadora"* |
-| 📸 Print de Tela | *"tira um print"* |
-| 📝 Anotações | *"anota: reunião às 15h"* |
+| 🌐 Abrir Navegador | *"abre o GitHub"* |
+| 📸 Capturar Tela | *"tira um print"* |
+| 📝 Criar Anotação | *"anota: reunião às 15h"* |
 
 ### 🗣️ Comandos de Controle por Voz
 

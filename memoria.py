@@ -22,7 +22,7 @@ MAX_FATOS_PERFIL = 50      # Fatos no perfil de longo prazo
 # MEMÓRIA DE CURTO PRAZO (histórico de chat)
 # ==========================================
 
-def carregar_memoria() -> List[Dict[str, str]]:
+def carregar_memoria() -> List[Dict[str, Any]]:
     """Carrega o histórico de conversas salvo no JSON."""
     try:
         if os.path.exists(MEMORIA_FILE):
@@ -36,7 +36,7 @@ def carregar_memoria() -> List[Dict[str, str]]:
     return []
 
 
-def salvar_memoria(historico: List[Dict[str, str]]) -> None:
+def salvar_memoria(historico: List[Dict[str, Any]]) -> None:
     """Salva o histórico de conversas no JSON."""
     try:
         # Limitar antes de salvar
@@ -137,7 +137,7 @@ CONVERSA RECENTE:
 
 def extrair_fatos(
     client: Groq,
-    ultimas_mensagens: List[Dict[str, str]],
+    ultimas_mensagens: List[Dict[str, Any]],
     perfil_atual: Dict[str, Any]
 ) -> List[str]:
     """
@@ -147,8 +147,14 @@ def extrair_fatos(
     if not ultimas_mensagens:
         return []
 
-    # Pegar apenas as últimas 4 mensagens para análise (2 turnos)
-    msgs_recentes = ultimas_mensagens[-4:]
+    # Filtrar apenas mensagens de usuário e assistente com conteúdo
+    msgs_validas = [
+        m for m in ultimas_mensagens 
+        if m.get("role") in ["user", "assistant"] and m.get("content")
+    ]
+
+    # Pegar apenas as últimas 4 mensagens válidas para análise (2 turnos)
+    msgs_recentes = msgs_validas[-4:]
     conversa_texto = "\n".join(
         f"{'Usuário' if m['role'] == 'user' else 'Nero'}: {m['content']}"
         for m in msgs_recentes
@@ -197,7 +203,7 @@ def extrair_fatos(
 
 def aprender(
     client: Groq,
-    historico: List[Dict[str, str]],
+    historico: List[Dict[str, Any]],
     perfil: Dict[str, Any]
 ) -> Dict[str, Any]:
     """

@@ -72,21 +72,22 @@ PERSONALIDADE:
 3. Respostas CURTAS — você fala em voz, não escreve textos longos.
 4. Se não souber algo, diga diretamente. Não enrole.
 5. Seu nome é Nero.
-6. USE as ferramentas quando o usuário pedir ações.
+6. OBRIGATÓRIO: NUNCA diga que executou uma ação sem ANTES chamar a ferramenta correspondente. Sempre use as ferramentas para abrir/fechar programas, alterar volume, tocar música, etc.
 7. Para conversa casual, responda naturalmente sem ferramentas.{fatos_texto}"""
     }
 
 
 def perguntar_groq(
-    historico: List[Dict[str, str]],
+    historico: List[Dict[str, Any]],
     nome_usuario: str,
     perfil: Dict[str, Any]
-) -> str:
+) -> tuple[str, List[Dict[str, Any]]]:
     """
     Envia o histórico ao Groq com ferramentas disponíveis.
     Se o Groq decidir usar uma ferramenta, executa e retorna a resposta final.
     """
     mensagens = [montar_system_prompt(nome_usuario, perfil)] + historico
+    novas_mensagens = []
 
     # 1ª chamada — Groq decide se usa ferramenta ou responde direto
     resposta = client.chat.completions.create(
@@ -102,13 +103,15 @@ def perguntar_groq(
 
     # Se NÃO chamou ferramenta, retorna resposta direta
     if not msg.tool_calls:
-        return msg.content.strip() if msg.content else "Não consegui processar."
+        texto = msg.content.strip() if msg.content else "Não consegui processar."
+        novas_mensagens.append({"role": "assistant", "content": texto})
+        return texto, novas_mensagens
 
     # Se chamou ferramenta(s), executa cada uma
     print(f"🔧 [Tools] {len(msg.tool_calls)} ferramenta(s) detectada(s)")
 
     # Adicionar a mensagem do assistant com tool_calls ao histórico
-    mensagens.append({
+    msg_assistant = {
         "role": "assistant",
         "content": msg.content or "",
         "tool_calls": [
@@ -122,7 +125,9 @@ def perguntar_groq(
             }
             for tc in msg.tool_calls
         ]
-    })
+    }
+    mensagens.append(msg_assistant)
+    novas_mensagens.append(msg_assistant)
 
     for tool_call in msg.tool_calls:
         nome_func = tool_call.function.name
@@ -145,14 +150,16 @@ def perguntar_groq(
         else:
             resultado = f"Ferramenta '{nome_func}' não encontrada."
 
-        print(f"   ✅ Resultado: {resultado[:100]}...")
+        print(f"   ✅ Resultado: {str(resultado)[:100]}...")
 
         # Adicionar resultado da ferramenta ao histórico
-        mensagens.append({
+        msg_tool = {
             "role": "tool",
             "tool_call_id": tool_call.id,
-            "content": resultado
-        })
+            "content": str(resultado)
+        }
+        mensagens.append(msg_tool)
+        novas_mensagens.append(msg_tool)
 
     # 2ª chamada — Groq formula resposta natural com o resultado da ferramenta
     resposta_final = client.chat.completions.create(
@@ -162,7 +169,10 @@ def perguntar_groq(
         max_tokens=300,
     )
 
-    return resposta_final.choices[0].message.content.strip()
+    texto_final = resposta_final.choices[0].message.content.strip()
+    novas_mensagens.append({"role": "assistant", "content": texto_final})
+
+    return texto_final, novas_mensagens
 
 
 # ==========================================
@@ -176,7 +186,7 @@ async def iniciar_assistente() -> None:
     inicializar_microfone_global()
 
     # Carregar memórias
-    historico_curto: List[Dict[str, str]] = carregar_memoria()
+    historico_curto: List[Dict[str, Any]] = carregar_memoria()
     perfil: Dict[str, Any] = carregar_perfil()
 
     tem_memoria = bool(historico_curto) or bool(perfil.get("fatos"))
@@ -291,15 +301,15 @@ async def iniciar_assistente() -> None:
 
             try:
                 print("🧠 [Groq] Processando...")
-                resposta_texto = await asyncio.wait_for(
+                resposta_texto, novas_msgs = await asyncio.wait_for(
                     asyncio.get_event_loop().run_in_executor(
                         None,
                         lambda: perguntar_groq(historico_curto, nome_atual, perfil)
                     ),
-                    timeout=20.0  # 20s — tool calls podem demorar um pouco mais
+                    timeout=45.0  # 45s — LLM (2 chamadas) e ferramentas podem demorar mais
                 )
 
-                historico_curto.append({"role": "assistant", "content": resposta_texto})
+                historico_curto.extend(novas_msgs)
                 print(f"🧠 [Groq]: {resposta_texto[:120]}...")
                 
                 # Falar e verificar se foi interrompido
@@ -325,8 +335,8 @@ async def iniciar_assistente() -> None:
                 except Exception:
                     pass
 
-            except asyncio.TimeoutError:
-                print("⏰ Groq travou — abortando após 20s")
+            except (asyncio.TimeoutError, TimeoutError):
+                print("⏰ Groq demorou muito — abortando limite de tempo")
                 if historico_curto and historico_curto[-1]["role"] == "user":
                     historico_curto.pop()
                 await falar_texto(random.choice([

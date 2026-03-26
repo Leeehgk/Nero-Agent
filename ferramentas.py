@@ -76,6 +76,27 @@ def controlar_midia(acao: str) -> str:
         return f"Erro ao controlar mídia: {str(e)}"
 
 
+def alterar_volume(acao: str) -> str:
+    """Altera o volume do sistema Windows (aumentar, diminuir, mutar)."""
+    try:
+        acao_lower = acao.lower()
+        if acao_lower in ["aumentar", "mais", "up", "aumenta"]:
+            for _ in range(5):  # Aumenta 10% (cada toque no volume do Windows representa 2%)
+                pyautogui.press("volumeup")
+            return "Volume aumentado."
+        elif acao_lower in ["diminuir", "menos", "down", "abaixar", "diminui"]:
+            for _ in range(5):  # Diminui 10%
+                pyautogui.press("volumedown")
+            return "Volume reduzido."
+        elif acao_lower in ["mutar", "mudo", "mute"]:
+            pyautogui.press("volumemute")
+            return "Volume mutado/desmutado."
+        else:
+            return f"Ação '{acao}' não reconhecida. Use: aumentar, diminuir, mutar."
+    except Exception as e:
+        return f"Erro ao alterar volume: {str(e)}"
+
+
 def obter_data_hora() -> str:
     """Retorna data e hora atuais."""
     agora = datetime.datetime.now()
@@ -98,10 +119,28 @@ def obter_clima(cidade: str) -> str:
         return f"Erro ao consultar clima: {str(e)}"
 
 
+def ler_noticias_dia() -> str:
+    """Pesquisa e retorna um resumo das principais notícias do dia no Brasil."""
+    try:
+        from ddgs import DDGS
+        resultados = list(DDGS().news(keywords="brasil", region="pt-br", safesearch="off", time="d", max_results=4))
+        if not resultados:
+            return "Não consegui encontrar as notícias de hoje. Tente pesquisar na web."
+
+        resumo = "Aqui estão as principais notícias de hoje: "
+        for i, r in enumerate(resultados):
+            titulo = r.get("title", "sem título")
+            resumo += f"{i+1}: {titulo}. "
+        
+        return resumo.strip()
+    except Exception as e:
+        return f"Erro ao buscar notícias: {str(e)}"
+
+
 def pesquisar_web(query: str) -> str:
     """Pesquisa na web usando DuckDuckGo."""
     try:
-        from duckduckgo_search import DDGS
+        from ddgs import DDGS
         resultados = list(DDGS().text(query, region="pt-br", max_results=3))
         if resultados:
             resumo = " | ".join(r.get("body", "")[:150] for r in resultados)
@@ -145,10 +184,45 @@ def abrir_programa(nome: str) -> str:
     try:
         nome_lower = nome.lower().strip()
         cmd = programas.get(nome_lower, nome_lower)
-        os.startfile(cmd) if ":" in cmd else subprocess.Popen(f"start {cmd}", shell=True)
+        if ":" in cmd:
+            os.startfile(cmd)
+        else:
+            subprocess.Popen(cmd, shell=True)
         return f"Programa '{nome}' aberto."
     except Exception as e:
         return f"Erro ao abrir '{nome}': {str(e)}"
+
+
+def fechar_programa(nome: str) -> str:
+    """Fecha um programa do Windows pelo nome."""
+    programas = {
+        "calculadora": "CalculatorApp.exe",  # Nome do processo no Windows 10/11
+        "bloco de notas": "notepad.exe",
+        "notepad": "notepad.exe",
+        "paint": "mspaint.exe",
+        "explorador": "explorer.exe",
+        "explorer": "explorer.exe",
+        "cmd": "cmd.exe",
+        "terminal": "WindowsTerminal.exe",
+        "configurações": "SystemSettings.exe",
+        "configuracoes": "SystemSettings.exe",
+    }
+    try:
+        nome_lower = nome.lower().strip()
+        proc_name = programas.get(nome_lower, f"{nome_lower}.exe" if not nome_lower.endswith(".exe") else nome_lower)
+        
+        resultado = subprocess.run(f"taskkill /F /IM {proc_name} /T", shell=True, capture_output=True, text=True)
+        
+        # Fallback para a calculadora legada (calc.exe) caso CalculatorApp.exe não seja encontrado
+        if resultado.returncode != 0 and nome_lower == "calculadora":
+            resultado = subprocess.run("taskkill /F /IM calc.exe /T", shell=True, capture_output=True, text=True)
+            
+        if resultado.returncode == 0:
+            return f"Programa '{nome}' fechado."
+        else:
+            return f"Não foi possível fechar '{nome}'. Talvez não esteja aberto."
+    except Exception as e:
+        return f"Erro ao fechar '{nome}': {str(e)}"
 
 
 def capturar_tela() -> str:
@@ -220,6 +294,24 @@ TOOL_SCHEMAS = [
     {
         "type": "function",
         "function": {
+            "name": "alterar_volume",
+            "description": "Altera o volume do sistema. Use quando o usuário pedir para aumentar, diminuir, abaixar ou mutar o volume.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "acao": {
+                        "type": "string",
+                        "enum": ["aumentar", "diminuir", "mutar"],
+                        "description": "Ação desejada: 'aumentar', 'diminuir' ou 'mutar'"
+                    }
+                },
+                "required": ["acao"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
             "name": "obter_data_hora",
             "description": "Retorna a data e hora atuais. Use quando o usuário perguntar que dia é, que horas são, etc.",
             "parameters": {
@@ -242,6 +334,17 @@ TOOL_SCHEMAS = [
                     }
                 },
                 "required": ["cidade"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "ler_noticias_dia",
+            "description": "Lê um resumo das principais notícias do dia. Use quando o usuário perguntar sobre 'notícias', 'manchetes', 'o que aconteceu hoje'.",
+            "parameters": {
+                "type": "object",
+                "properties": {}
             }
         }
     },
@@ -299,6 +402,23 @@ TOOL_SCHEMAS = [
     {
         "type": "function",
         "function": {
+            "name": "fechar_programa",
+            "description": "Fecha um programa do Windows que está aberto (calculadora, bloco de notas, paint, explorador, terminal, configurações). Use quando o usuário pedir para fechar ou encerrar um programa.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "nome": {
+                        "type": "string",
+                        "description": "Nome do programa a fechar"
+                    }
+                },
+                "required": ["nome"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
             "name": "capturar_tela",
             "description": "Tira um print/screenshot da tela inteira do computador. Use APENAS quando pedirem explicitamente para tirar um print.",
             "parameters": {
@@ -331,11 +451,14 @@ TOOL_SCHEMAS = [
 TOOL_FUNCTIONS = {
     "tocar_youtube": tocar_youtube,
     "controlar_midia": controlar_midia,
+    "alterar_volume": alterar_volume,
     "obter_data_hora": lambda **_: obter_data_hora(),
     "obter_clima": obter_clima,
+    "ler_noticias_dia": lambda **_: ler_noticias_dia(),
     "pesquisar_web": pesquisar_web,
     "abrir_navegador": abrir_navegador,
     "abrir_programa": abrir_programa,
+    "fechar_programa": fechar_programa,
     "capturar_tela": lambda **_: capturar_tela(),
     "criar_anotacao": criar_anotacao,
 }
