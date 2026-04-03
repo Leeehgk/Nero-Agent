@@ -1,5 +1,6 @@
 import os
 import json
+import re
 import asyncio
 import random
 import requests
@@ -73,7 +74,9 @@ PERSONALIDADE:
 {fatos_texto}"""
 
     # O LangGraph substitui o antigo AgentExecutor com uma arquitetura mais moderna
-    return create_react_agent(model=client, tools=FERRAMENTAS_LANGCHAIN, prompt=system_prompt)
+    # IMPORTANTE: Bindamos as ferramentas ao modelo para que ele saiba como chamá-las
+    model_with_tools = client.bind_tools(FERRAMENTAS_LANGCHAIN)
+    return create_react_agent(model=model_with_tools, tools=FERRAMENTAS_LANGCHAIN, prompt=system_prompt)
 
 
 def perguntar_langchain(
@@ -102,6 +105,29 @@ def perguntar_langchain(
         texto_final = resposta["messages"][-1].content
     except Exception as e:
         texto_final = f"Tive um erro interno processando a requisição: {str(e)}"
+
+    # Fallback para modelos locais (como Qwen no LM Studio) que geram a chamada da ferramenta no próprio texto
+    padrao_funcao = re.search(r'<function=([^>]+)>(.*?)</function>', texto_final, re.DOTALL)
+    if padrao_funcao:
+        nome_func = padrao_funcao.group(1).strip()
+        args_str = padrao_funcao.group(2).strip()
+        
+        # Limpa a tag do texto final para o Nero não falar o código da função em voz alta
+        texto_final = re.sub(r'<function=[^>]+>.*?</function>', '', texto_final, flags=re.DOTALL).strip()
+        
+        try:
+            if args_str:
+                args = json.loads(args_str)
+            else:
+                args = {}
+            print(f"🔧 [Fallback LM Local] Forçando execução da ferramenta '{nome_func}' com {args}")
+            for ferramenta in FERRAMENTAS_LANGCHAIN:
+                if ferramenta.name == nome_func:
+                    # Executa a função encontrada manualmente
+                    ferramenta.invoke(args)
+                    break
+        except Exception as e:
+            print(f"⚠️ Erro ao executar ferramenta de fallback: {e}")
 
     novas_mensagens = [{"role": "assistant", "content": texto_final}]
 

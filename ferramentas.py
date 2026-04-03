@@ -105,15 +105,10 @@ def pausar_youtube() -> str:
     Simula a tecla Espaço na janela do Chrome/YouTube para pausar.
     """
     try:
-        import time
-        # Tenta focar a janela do Chrome antes
-        if sys.platform == 'win32':
-            import ctypes
-            # Envia VK_SPACE (tecla espaço) para a janela em foco atual
-            # Pode ser necessário clicar na janela do YouTube antes
-            pyautogui.press("space")
-        else:
-            pyautogui.press("space")
+        # A tecla 'space' só funciona se o navegador do YouTube estiver focado na tela.
+        # A tecla 'playpause' (mídia) do teclado envia o comando de pausa em nível global no Windows,
+        # funcionando mesmo com o YouTube escondido em segundo plano no Chrome.
+        pyautogui.press("playpause")
         return "Música pausada! ⏸️"
     except Exception as e:
         return f"Erro ao pausar: {str(e)}"
@@ -445,6 +440,50 @@ def criar_anotacao(texto: str) -> str:
         return f"Erro ao anotar: {str(e)}"
 
 
+@tool
+def obter_musica_atual() -> str:
+    """
+    INFORMA QUAL MÚSICA/VÍDEO ESTÁ TOCANDO ATUALMENTE.
+    Use quando o usuário perguntar: 'que música é essa?', 'o que está tocando?', 'qual o nome da música'.
+    """
+    if sys.platform != 'win32':
+        return "Só consigo verificar a mídia atual no Windows."
+    
+    try:
+        from winsdk.windows.media.control import GlobalSystemMediaTransportControlsSessionManager
+        import asyncio
+        
+        async def _obter_info():
+            try:
+                manager = await GlobalSystemMediaTransportControlsSessionManager.request_async()
+                session = manager.get_current_session()
+                if not session:
+                    return "Não há nada tocando no momento."
+                
+                info = await session.try_get_media_properties_async()
+                titulo = info.title
+                artista = info.artist
+                
+                if titulo and artista:
+                    return f"A música atual é '{titulo}' do artista '{artista}' 🎵"
+                elif titulo:
+                    return f"Está tocando: '{titulo}' 🎵"
+                else:
+                    return "Tem uma mídia tocando, mas o aplicativo não forneceu o nome da faixa."
+            except Exception as e:
+                return f"Erro interno ao ler mídia: {e}"
+
+        novo_loop = asyncio.new_event_loop()
+        resultado = novo_loop.run_until_complete(_obter_info())
+        novo_loop.close()
+        return resultado
+
+    except ImportError:
+        return "A biblioteca 'winsdk' não está instalada. Avise ao usuário para executar: pip install winsdk"
+    except Exception as e:
+        return f"Não consegui pegar a música. Erro: {str(e)}"
+
+
 # ==========================================
 # FERRAMENTAS DO AGENTE (LANGCHAIN)
 # ==========================================
@@ -458,6 +497,7 @@ FERRAMENTAS_LANGCHAIN = [
     faixa_anterior,
     controlar_midia,
     alterar_volume,
+    obter_musica_atual,
     # Janelas
     esconder_todas_janelas,
     restaurar_todas_janelas,

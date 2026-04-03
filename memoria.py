@@ -136,12 +136,13 @@ CONVERSA RECENTE:
 
 
 def extrair_fatos(
-    client: Groq,
+    client,  # Pode ser Groq ou ChatOpenAI (ou qualquer LangChain LLM)
     ultimas_mensagens: List[Dict[str, Any]],
     perfil_atual: Dict[str, Any]
 ) -> List[str]:
     """
-    Usa o Groq para analisar a conversa e extrair fatos novos sobre o usuário.
+    Usa o LLM para analisar a conversa e extrair fatos novos sobre o usuário.
+    Funciona com Groq e ChatOpenAI (LM Studio).
     Retorna lista de fatos novos (pode ser vazia).
     """
     if not ultimas_mensagens:
@@ -169,13 +170,26 @@ def extrair_fatos(
     )
 
     try:
-        resposta = client.chat.completions.create(
-            model="llama-3.1-8b-instant",
-            messages=[{"role": "user", "content": prompt}],
-            temperature=0.0,
-            max_tokens=200,
-        )
-        texto = resposta.choices[0].message.content.strip()
+        # Detectar tipo de cliente e usar o método apropriado
+        texto = None
+        
+        # Tenta como ChatOpenAI/LangChain (LM Studio)
+        if hasattr(client, 'invoke'):
+            from langchain_core.messages import HumanMessage
+            resposta = client.invoke([HumanMessage(content=prompt)])
+            texto = resposta.content.strip() if hasattr(resposta, 'content') else str(resposta).strip()
+        # Tenta como Groq
+        elif hasattr(client, 'chat') and hasattr(client.chat, 'completions'):
+            resposta = client.chat.completions.create(
+                model="llama-3.1-8b-instant",
+                messages=[{"role": "user", "content": prompt}],
+                temperature=0.0,
+                max_tokens=200,
+            )
+            texto = resposta.choices[0].message.content.strip()
+        else:
+            print("⚠️ Cliente LLM não reconhecido para extração de fatos")
+            return []
 
         if "NENHUM" in texto.upper():
             return []
@@ -202,7 +216,7 @@ def extrair_fatos(
 
 
 def aprender(
-    client: Groq,
+    client,  # Pode ser Groq ou ChatOpenAI (LM Studio)
     historico: List[Dict[str, Any]],
     perfil: Dict[str, Any]
 ) -> Dict[str, Any]:
@@ -210,6 +224,7 @@ def aprender(
     Função principal de aprendizado.
     Analisa a conversa, extrai fatos novos e atualiza o perfil.
     Retorna o perfil atualizado.
+    Funciona com Groq e ChatOpenAI (LM Studio).
     """
     fatos_novos = extrair_fatos(client, historico, perfil)
 
