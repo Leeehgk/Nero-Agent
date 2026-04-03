@@ -11,94 +11,286 @@ from typing import List
 if sys.platform == 'win32':
     sys.stdout.reconfigure(encoding='utf-8', errors='replace')
 
+from langchain_core.tools import tool
 import pywhatkit
 import pyautogui
 from PIL import ImageGrab
 
 # ==========================================
+# CONTROLE DE JANELAS (Win32 API)
+# ==========================================
+
+_janelas_ocultas = []  # Guarda handles das janelas ocultadas
+
+def _obter_hwnd_janelas_visiveis():
+    """Retorna lista de handles de janelas visíveis (exceto Taskbar e Desktop)."""
+    if sys.platform != 'win32':
+        return []
+    import ctypes
+    import ctypes.wintypes
+
+    janelas = []
+    BLACKLIST_CLASSES = {"Shell_TrayWnd", "Progman", "WorkerW", "DV2ControlHost", "Windows.UI.Core.CoreWindow"}
+
+    def enum_callback(hwnd, _):
+        if ctypes.windll.user32.IsWindowVisible(hwnd):
+            length = ctypes.windll.user32.GetWindowTextLengthW(hwnd)
+            if length == 0:
+                return True
+            buf = ctypes.create_unicode_buffer(length + 1)
+            ctypes.windll.user32.GetWindowTextW(hwnd, buf, length + 1)
+            class_buf = ctypes.create_unicode_buffer(256)
+            ctypes.windll.user32.GetClassNameW(hwnd, class_buf, 256)
+            if class_buf.value not in BLACKLIST_CLASSES:
+                janelas.append(hwnd)
+        return True
+
+    WNDENUMPROC = ctypes.WINFUNCTYPE(ctypes.wintypes.BOOL, ctypes.wintypes.HWND, ctypes.wintypes.LPARAM)
+    ctypes.windll.user32.EnumWindows(WNDENUMPROC(enum_callback), 0)
+    return janelas
+
+
+# ==========================================
 # FERRAMENTAS — Funções Python puras
 # ==========================================
 
-
+@tool
 def tocar_youtube(pesquisa: str) -> str:
-    """Toca música ou vídeo no YouTube usando múltiplas abordagens."""
+    """
+    TOQUE MÚSICA NO YOUTUBE.
+    Use quando usuário disser: 'tocar', 'colocar pra tocar', 'ouvir', 'youtube' ou pedir um artista.
+    Parâmetro 'pesquisa' é o que o usuário quer ouvir (ex: 'Red Hot Chili Peppers', 'música tranquila').
+    Abre o YouTube diretamente no navegador padrão com a busca especificada.
+    """
     print(f"🔍 [YouTube] Procurando: {pesquisa}")
-    
-    # Método 1: pywhatkit (padrão)
+
+    # Método 1: pywhatkit (padrão) — abre e toca o primeiro resultado
     try:
         pywhatkit.playonyt(pesquisa)
-        print(f"✅ [YouTube] pywhatkit executou com sucesso")
+        print("✅ [YouTube] pywhatkit executou com sucesso")
         return f"Tocando '{pesquisa}' no YouTube!"
     except Exception as e1:
-        print(f"⚠️ [YouTube] pywhatkit falhou: {str(e1)}")
-        
-        # Método 2: webbrowser direto
-        try:
+        print(f"⚠️ [YouTube] pywhatkit falhou: {e1}")
+
+    # Método 2: webbrowser direto com resultados de busca
+    try:
+        pesquisa_encoded = urllib.parse.quote(pesquisa)
+        url = f"https://www.youtube.com/results?search_query={pesquisa_encoded}"
+        webbrowser.open(url)
+        print(f"✅ [YouTube] webbrowser abriu: {url}")
+        return f"Tocando '{pesquisa}' no YouTube!"
+    except Exception as e2:
+        print(f"⚠️ [YouTube] webbrowser falhou: {e2}")
+
+    # Método 3: subprocess com Chrome (fallback Windows)
+    try:
+        chrome_path = r"C:\Program Files\Google\Chrome\Application\chrome.exe"
+        if os.path.exists(chrome_path):
             pesquisa_encoded = urllib.parse.quote(pesquisa)
             url = f"https://www.youtube.com/results?search_query={pesquisa_encoded}"
-            webbrowser.open(url)
-            print(f"✅ [YouTube] webbrowser abriu: {url}")
+            subprocess.Popen([chrome_path, url])
+            print("✅ [YouTube] Chrome abriu diretamente")
             return f"Tocando '{pesquisa}' no YouTube!"
-        except Exception as e2:
-            print(f"⚠️ [YouTube] webbrowser falhou: {str(e2)}")
-            
-            # Método 3: subprocess com Chrome
-            try:
-                chrome_path = "C:/Program Files/Google/Chrome/Application/chrome.exe"
-                if os.path.exists(chrome_path):
-                    pesquisa_encoded = urllib.parse.quote(pesquisa)
-                    url = f"https://www.youtube.com/results?search_query={pesquisa_encoded}"
-                    subprocess.Popen([chrome_path, url])
-                    print(f"✅ [YouTube] Chrome abriu diretamente")
-                    return f"Tocando '{pesquisa}' no YouTube!"
-            except Exception as e3:
-                print(f"⚠️ [YouTube] Chrome falhou: {str(e3)}")
-    
+    except Exception as e3:
+        print(f"⚠️ [YouTube] Chrome falhou: {e3}")
+
     return f"Não consegui abrir '{pesquisa}' no YouTube. Verifique se o Chrome está instalado."
 
 
+@tool
+def pausar_youtube() -> str:
+    """
+    PAUSA A MÚSICA/VÍDEO NO YOUTUBE.
+    Use quando o usuário disser: 'pausar', 'pause', 'para a música', 'para o vídeo', 'parar'.
+    Simula a tecla Espaço na janela do Chrome/YouTube para pausar.
+    """
+    try:
+        import time
+        # Tenta focar a janela do Chrome antes
+        if sys.platform == 'win32':
+            import ctypes
+            # Envia VK_SPACE (tecla espaço) para a janela em foco atual
+            # Pode ser necessário clicar na janela do YouTube antes
+            pyautogui.press("space")
+        else:
+            pyautogui.press("space")
+        return "Música pausada! ⏸️"
+    except Exception as e:
+        return f"Erro ao pausar: {str(e)}"
+
+
+@tool
+def tocar_pausar_midia() -> str:
+    """
+    ALTERNA ENTRE PLAY E PAUSE NA MÍDIA ATUAL.
+    Use quando o usuário disser: 'play', 'continuar', 'tocar', 'pausar', 'pause',
+    'para a música', 'continua a música', 'toggle play'.
+    Usa a tecla de mídia PlayPause do teclado.
+    """
+    try:
+        pyautogui.press("playpause")
+        return "Play/Pause alternado! ▶️⏸️"
+    except Exception as e:
+        return f"Erro no play/pause: {str(e)}"
+
+
+@tool
+def proxima_faixa() -> str:
+    """
+    PULA PARA A PRÓXIMA FAIXA/MÚSICA/VÍDEO.
+    Use quando o usuário disser: 'próxima', 'pular', 'skip', 'avançar música', 'passa a música'.
+    """
+    try:
+        pyautogui.press("nexttrack")
+        return "Pulei para a próxima faixa! ⏭️"
+    except Exception as e:
+        return f"Erro ao pular faixa: {str(e)}"
+
+
+@tool
+def faixa_anterior() -> str:
+    """
+    VOLTA PARA A FAIXA/MÚSICA/VÍDEO ANTERIOR.
+    Use quando o usuário disser: 'anterior', 'voltar música', 'música anterior', 'volta'.
+    """
+    try:
+        pyautogui.press("prevtrack")
+        return "Voltei para a faixa anterior! ⏮️"
+    except Exception as e:
+        return f"Erro ao voltar faixa: {str(e)}"
+
+
+@tool
 def controlar_midia(acao: str) -> str:
-    """Controla mídia usando teclas multimídia do Windows."""
+    """
+    CONTROLA MÍDIA DO COMPUTADOR.
+    Use quando usuário disser: 'pausar', 'parar', 'pause' (pausar).
+    'tocar', 'play', 'continuar' (voltar a tocar).
+    'próxima', 'pular', 'skip' (próxima faixa).
+    'anterior', 'voltar' (faixa anterior).
+    """
     try:
         acao_lower = acao.lower()
-        if acao_lower in ["pausar", "tocar", "play", "pause", "play/pause"]:
+        if acao_lower in ["pausar", "tocar", "play", "pause", "play/pause", "toggle"]:
             pyautogui.press("playpause")
-            return "Play/Pause executado."
-        elif acao_lower in ["proximo", "próximo", "pular", "skip"]:
+            return "Play/Pause executado. ▶️⏸️"
+        elif acao_lower in ["proximo", "próximo", "pular", "skip", "avançar"]:
             pyautogui.press("nexttrack")
-            return "Próxima faixa."
-        elif acao_lower in ["anterior", "voltar"]:
+            return "Próxima faixa. ⏭️"
+        elif acao_lower in ["anterior", "voltar", "volta"]:
             pyautogui.press("prevtrack")
-            return "Faixa anterior."
+            return "Faixa anterior. ⏮️"
         else:
             return f"Ação '{acao}' não suportada. Use: pausar, tocar, proximo, anterior."
     except Exception as e:
         return f"Erro ao controlar mídia: {str(e)}"
 
 
+@tool
+def esconder_todas_janelas() -> str:
+    """
+    ESCONDE/MINIMIZA TODAS AS JANELAS ABERTAS (mostra a área de trabalho).
+    Use quando o usuário disser: 'esconde as janelas', 'minimiza tudo', 'mostra a área de trabalho',
+    'limpa a tela', 'esconde tudo', 'oculta as janelas'.
+    Guarda a lista de janelas para restaurar depois.
+    """
+    global _janelas_ocultas
+    try:
+        if sys.platform == 'win32':
+            import ctypes
+            # Win+D — mostra área de trabalho (toggle)
+            # Método robusto: minimizar cada janela individualmente
+            janelas = _obter_hwnd_janelas_visiveis()
+            SW_MINIMIZE = 6
+            _janelas_ocultas = []
+            for hwnd in janelas:
+                try:
+                    ctypes.windll.user32.ShowWindow(hwnd, SW_MINIMIZE)
+                    _janelas_ocultas.append(hwnd)
+                except Exception:
+                    pass
+            return f"Todas as {len(_janelas_ocultas)} janelas foram minimizadas! 🖥️ Área de trabalho limpa."
+        else:
+            # Linux/Mac: usa xdotool ou equivalente
+            subprocess.run(["xdotool", "key", "super+d"], check=False)
+            return "Janelas minimizadas! Área de trabalho limpa. 🖥️"
+    except Exception as e:
+        return f"Erro ao esconder janelas: {str(e)}"
+
+
+@tool
+def restaurar_todas_janelas() -> str:
+    """
+    RESTAURA TODAS AS JANELAS QUE FORAM ESCONDIDAS/MINIMIZADAS.
+    Use quando o usuário disser: 'restaura as janelas', 'abre as janelas de volta',
+    'restaura tudo', 'volta as janelas', 'mostra as janelas'.
+    Restaura janelas que foram escondidas anteriormente.
+    """
+    global _janelas_ocultas
+    try:
+        if sys.platform == 'win32':
+            import ctypes
+            SW_RESTORE = 9
+            if _janelas_ocultas:
+                restauradas = 0
+                for hwnd in _janelas_ocultas:
+                    try:
+                        if ctypes.windll.user32.IsWindow(hwnd):
+                            ctypes.windll.user32.ShowWindow(hwnd, SW_RESTORE)
+                            restauradas += 1
+                    except Exception:
+                        pass
+                _janelas_ocultas = []
+                return f"Restaurei {restauradas} janela(s)! 🪟 Tudo de volta."
+            else:
+                # Se não há janelas salvas, tenta Win+D para alternar
+                pyautogui.hotkey('win', 'd')
+                return "Tentei restaurar as janelas com Win+D! 🪟"
+        else:
+            subprocess.run(["xdotool", "key", "super+d"], check=False)
+            return "Janelas restauradas! 🪟"
+    except Exception as e:
+        return f"Erro ao restaurar janelas: {str(e)}"
+
+
+@tool
+def alternar_janelas() -> str:
+    """
+    ALTERNA ENTRE MOSTRAR ÁREA DE TRABALHO E RESTAURAR JANELAS (Win+D).
+    Use quando o usuário disser: 'alterna janelas', 'Win+D', 'toggle área de trabalho'.
+    """
+    try:
+        pyautogui.hotkey('win', 'd')
+        return "Alternado entre área de trabalho e janelas! 🪟"
+    except Exception as e:
+        return f"Erro: {str(e)}"
+
+
+@tool
 def alterar_volume(acao: str) -> str:
-    """Altera o volume do sistema Windows (aumentar, diminuir, mutar)."""
+    """Altera o volume do sistema Windows. Use quando o usuário pedir para aumentar, diminuir ou mutar o volume."""
     try:
         acao_lower = acao.lower()
         if acao_lower in ["aumentar", "mais", "up", "aumenta"]:
-            for _ in range(5):  # Aumenta 10% (cada toque no volume do Windows representa 2%)
+            for _ in range(5):
                 pyautogui.press("volumeup")
-            return "Volume aumentado."
+            return "Volume aumentado. 🔊"
         elif acao_lower in ["diminuir", "menos", "down", "abaixar", "diminui"]:
-            for _ in range(5):  # Diminui 10%
+            for _ in range(5):
                 pyautogui.press("volumedown")
-            return "Volume reduzido."
+            return "Volume reduzido. 🔉"
         elif acao_lower in ["mutar", "mudo", "mute"]:
             pyautogui.press("volumemute")
-            return "Volume mutado/desmutado."
+            return "Volume mutado/desmutado. 🔇"
         else:
             return f"Ação '{acao}' não reconhecida. Use: aumentar, diminuir, mutar."
     except Exception as e:
         return f"Erro ao alterar volume: {str(e)}"
 
 
+@tool
 def obter_data_hora() -> str:
-    """Retorna data e hora atuais."""
+    """Retorna a data e hora atuais. Use quando o usuário perguntar que dia é, que horas são, etc."""
     agora = datetime.datetime.now()
     dias: List[str] = [
         "Segunda-feira", "Terça-feira", "Quarta-feira",
@@ -107,8 +299,9 @@ def obter_data_hora() -> str:
     return f"Hoje é {dias[agora.weekday()]}, {agora.strftime('%d/%m/%Y %H:%M')}."
 
 
+@tool
 def obter_clima(cidade: str) -> str:
-    """Retorna o clima atual de uma cidade."""
+    """Retorna a temperatura e condição climática de uma cidade. Use quando perguntarem sobre clima, tempo, temperatura."""
     try:
         url = f"https://wttr.in/{cidade}?format=3"
         resp = requests.get(url, timeout=5)
@@ -119,26 +312,26 @@ def obter_clima(cidade: str) -> str:
         return f"Erro ao consultar clima: {str(e)}"
 
 
+@tool
 def ler_noticias_dia() -> str:
-    """Pesquisa e retorna um resumo das principais notícias do dia no Brasil."""
+    """Lê um resumo das principais notícias do dia. Use quando o usuário perguntar sobre 'notícias', 'manchetes', 'o que aconteceu hoje'."""
     try:
         from ddgs import DDGS
         resultados = list(DDGS().news(keywords="brasil", region="pt-br", safesearch="off", time="d", max_results=4))
         if not resultados:
             return "Não consegui encontrar as notícias de hoje. Tente pesquisar na web."
-
         resumo = "Aqui estão as principais notícias de hoje: "
         for i, r in enumerate(resultados):
             titulo = r.get("title", "sem título")
             resumo += f"{i+1}: {titulo}. "
-        
         return resumo.strip()
     except Exception as e:
         return f"Erro ao buscar notícias: {str(e)}"
 
 
+@tool
 def pesquisar_web(query: str) -> str:
-    """Pesquisa na web usando DuckDuckGo."""
+    """Pesquisa na internet sobre qualquer assunto. Use quando o usuário pedir para pesquisar, buscar informação ou quando você não souber a resposta."""
     try:
         from ddgs import DDGS
         resultados = list(DDGS().text(query, region="pt-br", max_results=3))
@@ -156,8 +349,9 @@ def pesquisar_web(query: str) -> str:
             return f"Erro ao pesquisar: {str(e)}"
 
 
+@tool
 def abrir_navegador(url: str) -> str:
-    """Abre o navegador em uma URL."""
+    """Abre o navegador em uma URL específica. Use quando pedirem para abrir um site (ex: google.com, youtube.com)."""
     try:
         if not url.startswith("http"):
             url = f"https://{url}"
@@ -167,8 +361,9 @@ def abrir_navegador(url: str) -> str:
         return f"Erro ao abrir navegador: {str(e)}"
 
 
+@tool
 def abrir_programa(nome: str) -> str:
-    """Abre um programa do Windows pelo nome."""
+    """Abre um programa do Windows (calculadora, bloco de notas, paint, explorador, terminal, configurações)."""
     programas = {
         "calculadora": "calc",
         "bloco de notas": "notepad",
@@ -193,10 +388,11 @@ def abrir_programa(nome: str) -> str:
         return f"Erro ao abrir '{nome}': {str(e)}"
 
 
+@tool
 def fechar_programa(nome: str) -> str:
-    """Fecha um programa do Windows pelo nome."""
+    """Fecha um programa do Windows que está aberto. Use quando o usuário pedir para fechar ou encerrar um programa."""
     programas = {
-        "calculadora": "CalculatorApp.exe",  # Nome do processo no Windows 10/11
+        "calculadora": "CalculatorApp.exe",
         "bloco de notas": "notepad.exe",
         "notepad": "notepad.exe",
         "paint": "mspaint.exe",
@@ -210,13 +406,9 @@ def fechar_programa(nome: str) -> str:
     try:
         nome_lower = nome.lower().strip()
         proc_name = programas.get(nome_lower, f"{nome_lower}.exe" if not nome_lower.endswith(".exe") else nome_lower)
-        
         resultado = subprocess.run(f"taskkill /F /IM {proc_name} /T", shell=True, capture_output=True, text=True)
-        
-        # Fallback para a calculadora legada (calc.exe) caso CalculatorApp.exe não seja encontrado
         if resultado.returncode != 0 and nome_lower == "calculadora":
             resultado = subprocess.run("taskkill /F /IM calc.exe /T", shell=True, capture_output=True, text=True)
-            
         if resultado.returncode == 0:
             return f"Programa '{nome}' fechado."
         else:
@@ -225,8 +417,9 @@ def fechar_programa(nome: str) -> str:
         return f"Erro ao fechar '{nome}': {str(e)}"
 
 
+@tool
 def capturar_tela() -> str:
-    """Tira um print da tela inteira."""
+    """Tira um print/screenshot da tela inteira. Use APENAS quando pedirem explicitamente para tirar um print."""
     try:
         pasta = os.path.join(os.path.dirname(os.path.abspath(__file__)), "Prints")
         if not os.path.exists(pasta):
@@ -239,8 +432,9 @@ def capturar_tela() -> str:
         return f"Erro ao capturar tela: {str(e)}"
 
 
+@tool
 def criar_anotacao(texto: str) -> str:
-    """Salva uma anotação em arquivo de texto."""
+    """Salva uma anotação/lembrete em arquivo de texto. Use quando pedirem para anotar, salvar, registrar algo."""
     try:
         caminho = os.path.join(os.path.dirname(os.path.abspath(__file__)), "anotacoes_nero.txt")
         agora = datetime.datetime.now().strftime("%d/%m/%Y %H:%M:%S")
@@ -252,213 +446,30 @@ def criar_anotacao(texto: str) -> str:
 
 
 # ==========================================
-# SCHEMAS PARA GROQ FUNCTION CALLING
+# FERRAMENTAS DO AGENTE (LANGCHAIN)
 # ==========================================
 
-TOOL_SCHEMAS = [
-    {
-        "type": "function",
-        "function": {
-            "name": "tocar_youtube",
-            "description": "TOQUE MÚSICA NO YOUTUBE. Use quando usuário disser: 'tocar', 'colocar pra tocar', 'ouvir', 'escutar', 'youtube', 'spotify', 'música', 'banda', 'artista'. Parâmetro pesquisa = o que o usuário quer ouvir (ex: 'Red Hot Chili Peppers', 'música tranquila', 'rock anos 80').",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "pesquisa": {
-                        "type": "string",
-                        "description": "O que o usuário quer ouvir: nome de música, artista, banda ou gênero. Ex: 'Red Hot Chili Peppers', 'música feliz para trabajar', 'Coldplay'"
-                    }
-                },
-                "required": ["pesquisa"]
-            }
-        }
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "controlar_midia",
-            "description": "CONTROLA MÍDIA DO COMPUTADOR. Use quando usuário disser: 'pausar', 'parar', 'pause' (pausar). 'tocar', 'play', 'continuar' (voltar a tocar). 'próxima', 'pular', 'skip' (próxima faixa). 'anterior', 'voltar' (faixa anterior).",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "acao": {
-                        "type": "string",
-                        "enum": ["pausar", "pause", "tocar", "play", "proximo", "proxima", "anterior", "voltar"],
-                        "description": "Ação: 'pausar' para pausar, 'tocar' para reproduzir, 'proximo' para próxima faixa, 'anterior' para faixa anterior"
-                    }
-                },
-                "required": ["acao"]
-            }
-        }
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "alterar_volume",
-            "description": "Altera o volume do sistema. Use quando o usuário pedir para aumentar, diminuir, abaixar ou mutar o volume.",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "acao": {
-                        "type": "string",
-                        "enum": ["aumentar", "diminuir", "mutar"],
-                        "description": "Ação desejada: 'aumentar', 'diminuir' ou 'mutar'"
-                    }
-                },
-                "required": ["acao"]
-            }
-        }
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "obter_data_hora",
-            "description": "Retorna a data e hora atuais. Use quando o usuário perguntar que dia é, que horas são, etc.",
-            "parameters": {
-                "type": "object",
-                "properties": {}
-            }
-        }
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "obter_clima",
-            "description": "Retorna a temperatura e condição climática de uma cidade. Use quando perguntarem sobre clima, tempo, temperatura.",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "cidade": {
-                        "type": "string",
-                        "description": "Nome da cidade. Se não especificada, use 'São José do Rio Preto'."
-                    }
-                },
-                "required": ["cidade"]
-            }
-        }
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "ler_noticias_dia",
-            "description": "Lê um resumo das principais notícias do dia. Use quando o usuário perguntar sobre 'notícias', 'manchetes', 'o que aconteceu hoje'.",
-            "parameters": {
-                "type": "object",
-                "properties": {}
-            }
-        }
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "pesquisar_web",
-            "description": "Pesquisa na internet sobre qualquer assunto. Use quando o usuário pedir para pesquisar, buscar informação ou quando você não souber a resposta.",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "query": {
-                        "type": "string",
-                        "description": "Termo de pesquisa"
-                    }
-                },
-                "required": ["query"]
-            }
-        }
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "abrir_navegador",
-            "description": "Abre o navegador em uma URL específica. Use quando pedirem para abrir um site.",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "url": {
-                        "type": "string",
-                        "description": "URL do site (ex: google.com, youtube.com)"
-                    }
-                },
-                "required": ["url"]
-            }
-        }
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "abrir_programa",
-            "description": "Abre um programa do Windows (calculadora, bloco de notas, paint, explorador, terminal, configurações).",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "nome": {
-                        "type": "string",
-                        "description": "Nome do programa a abrir"
-                    }
-                },
-                "required": ["nome"]
-            }
-        }
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "fechar_programa",
-            "description": "Fecha um programa do Windows que está aberto (calculadora, bloco de notas, paint, explorador, terminal, configurações). Use quando o usuário pedir para fechar ou encerrar um programa.",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "nome": {
-                        "type": "string",
-                        "description": "Nome do programa a fechar"
-                    }
-                },
-                "required": ["nome"]
-            }
-        }
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "capturar_tela",
-            "description": "Tira um print/screenshot da tela inteira do computador. Use APENAS quando pedirem explicitamente para tirar um print.",
-            "parameters": {
-                "type": "object",
-                "properties": {}
-            }
-        }
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "criar_anotacao",
-            "description": "Salva uma anotação/lembrete em arquivo de texto. Use quando pedirem para anotar, salvar, registrar algo.",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "texto": {
-                        "type": "string",
-                        "description": "Texto da anotação a ser salva"
-                    }
-                },
-                "required": ["texto"]
-            }
-        }
-    },
+FERRAMENTAS_LANGCHAIN = [
+    # YouTube & Mídia
+    tocar_youtube,
+    pausar_youtube,
+    tocar_pausar_midia,
+    proxima_faixa,
+    faixa_anterior,
+    controlar_midia,
+    alterar_volume,
+    # Janelas
+    esconder_todas_janelas,
+    restaurar_todas_janelas,
+    alternar_janelas,
+    # Sistema
+    obter_data_hora,
+    obter_clima,
+    ler_noticias_dia,
+    pesquisar_web,
+    abrir_navegador,
+    abrir_programa,
+    fechar_programa,
+    capturar_tela,
+    criar_anotacao,
 ]
-
-
-# Mapa nome → função para execução
-TOOL_FUNCTIONS = {
-    "tocar_youtube": tocar_youtube,
-    "controlar_midia": controlar_midia,
-    "alterar_volume": alterar_volume,
-    "obter_data_hora": lambda **_: obter_data_hora(),
-    "obter_clima": obter_clima,
-    "ler_noticias_dia": lambda **_: ler_noticias_dia(),
-    "pesquisar_web": pesquisar_web,
-    "abrir_navegador": abrir_navegador,
-    "abrir_programa": abrir_programa,
-    "fechar_programa": fechar_programa,
-    "capturar_tela": lambda **_: capturar_tela(),
-    "criar_anotacao": criar_anotacao,
-}

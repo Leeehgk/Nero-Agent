@@ -2,10 +2,15 @@ import os
 import json
 import asyncio
 import random
+import requests
 from typing import List, Dict, Any
 
 from dotenv import load_dotenv
-from groq import Groq
+
+from langchain_groq import ChatGroq
+from langchain_openai import ChatOpenAI
+from langgraph.prebuilt import create_react_agent
+from langchain_core.messages import HumanMessage, AIMessage
 
 from audio import (
     inicializar_microfone_global, fechar_microfone_global,
@@ -17,7 +22,7 @@ from memoria import (
     carregar_perfil, limpar_perfil,
     formatar_fatos_para_prompt, aprender
 )
-from ferramentas import TOOL_SCHEMAS, TOOL_FUNCTIONS
+from ferramentas import FERRAMENTAS_LANGCHAIN
 
 # ==========================================
 # CONFIGURAÇÃO E AMBIENTE
@@ -25,11 +30,8 @@ from ferramentas import TOOL_SCHEMAS, TOOL_FUNCTIONS
 
 load_dotenv()
 GROQ_API_KEY = os.getenv("GROQ_API_KEY")
+# GROQ_API_KEY será validada apenas se o usuário escolher iniciar com Groq
 
-if not GROQ_API_KEY:
-    raise ValueError("⚠️ GROQ_API_KEY não encontrada no arquivo .env!")
-
-BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 CONFIG_FILE = os.path.join(BASE_DIR, "config_eon.json")
 
@@ -47,24 +49,19 @@ def ler_config_nome() -> str:
 
 
 # ==========================================
-# CLIENTE GROQ + FUNCTION CALLING
+# CLIENTE (Groq ou LM local) + FUNCTION CALLING
 # ==========================================
 
-client = Groq(api_key=GROQ_API_KEY)
+client_llm = None  # Inicializado na escolha de provedor
 
 
-def montar_system_prompt(nome_usuario: str, perfil: Dict[str, Any]) -> Dict[str, str]:
+def criar_agente_langchain(client, nome_usuario: str, perfil: Dict[str, Any]):
     fatos_texto = formatar_fatos_para_prompt(perfil)
-
-    return {
-        "role": "system",
-        "content": f"""Você é o Nero, assistente pessoal de IA do usuário '{nome_usuario}'.
+    system_prompt = f"""Você é o Nero, assistente pessoal de IA do usuário '{nome_usuario}'.
 
 REGRAS CRUCIAIS PARA AÇÕES:
-- Se usuário disser "tocar", "colocar música", "ouvir", "escutar", "youtube", "red hot", "spotify", "deezer", use a ferramenta 'tocar_youtube'. O parâmetro 'pesquisa' deve conter o que o usuário quer ouvir (ex: "Red Hot Chili Peppers", "música feliz", "rock clássico").
-- Se usuário disser "pausar", "parar música", "stop", use 'controlar_midia' com acao='pausar'.
-- Se usuário disser "tocar" (após pausa), "play", use 'controlar_midia' com acao='tocar'.
-- Se usuário disser "próxima", "pular", "skip", use 'controlar_midia' com acao='proximo'.
+- Use as ferramentas ativamente quando o usuário pedir para tocar música, alterar volume, abrir programas, pesquisar, etc.
+- OBRIGATÓRIO: NUNCA diga que executou uma ação sem ANTES chamar a ferramenta correspondente.
 
 PERSONALIDADE:
 1. Descolado, direto, animado, empático. Como um amigo expert.
@@ -72,105 +69,41 @@ PERSONALIDADE:
 3. Respostas CURTAS — você fala em voz, não escreve textos longos.
 4. Se não souber algo, diga diretamente. Não enrole.
 5. Seu nome é Nero.
-6. OBRIGATÓRIO: NUNCA diga que executou uma ação sem ANTES chamar a ferramenta correspondente. Sempre use as ferramentas para abrir/fechar programas, alterar volume, tocar música, etc.
-7. Para conversa casual, responda naturalmente sem ferramentas.{fatos_texto}"""
-    }
+6. Para conversa casual, responda naturalmente sem ferramentas.
+{fatos_texto}"""
+
+    # O LangGraph substitui o antigo AgentExecutor com uma arquitetura mais moderna
+    return create_react_agent(model=client, tools=FERRAMENTAS_LANGCHAIN, prompt=system_prompt)
 
 
-def perguntar_groq(
+def perguntar_langchain(
     historico: List[Dict[str, Any]],
     nome_usuario: str,
     perfil: Dict[str, Any]
 ) -> tuple[str, List[Dict[str, Any]]]:
     """
-    Envia o histórico ao Groq com ferramentas disponíveis.
-    Se o Groq decidir usar uma ferramenta, executa e retorna a resposta final.
+    Formata o histórico e repassa para o agente do LangGraph processar texto e ações.
     """
-    mensagens = [montar_system_prompt(nome_usuario, perfil)] + historico
-    novas_mensagens = []
+    executor = criar_agente_langchain(client_llm, nome_usuario, perfil)
 
-    # 1ª chamada — Groq decide se usa ferramenta ou responde direto
-    resposta = client.chat.completions.create(
-        model="llama-3.1-8b-instant",
-        messages=mensagens,
-        tools=TOOL_SCHEMAS,
-        tool_choice="auto",
-        temperature=0.2,
-        max_tokens=500,
-    )
+    # Converte todo o histórico para o padrão de mensagens
+    lc_history = []
+    for msg in historico:
+        if msg.get("role") == "user":
+            lc_history.append(HumanMessage(content=msg.get("content", "")))
+        elif msg.get("role") == "assistant" and msg.get("content"):
+            lc_history.append(AIMessage(content=msg.get("content", "")))
 
-    msg = resposta.choices[0].message
+    try:
+        resposta = executor.invoke({
+            "messages": lc_history
+        })
+        # A última mensagem será a resposta final do modelo
+        texto_final = resposta["messages"][-1].content
+    except Exception as e:
+        texto_final = f"Tive um erro interno processando a requisição: {str(e)}"
 
-    # Se NÃO chamou ferramenta, retorna resposta direta
-    if not msg.tool_calls:
-        texto = msg.content.strip() if msg.content else "Não consegui processar."
-        novas_mensagens.append({"role": "assistant", "content": texto})
-        return texto, novas_mensagens
-
-    # Se chamou ferramenta(s), executa cada uma
-    print(f"🔧 [Tools] {len(msg.tool_calls)} ferramenta(s) detectada(s)")
-
-    # Adicionar a mensagem do assistant com tool_calls ao histórico
-    msg_assistant = {
-        "role": "assistant",
-        "content": msg.content or "",
-        "tool_calls": [
-            {
-                "id": tc.id,
-                "type": "function",
-                "function": {
-                    "name": tc.function.name,
-                    "arguments": tc.function.arguments
-                }
-            }
-            for tc in msg.tool_calls
-        ]
-    }
-    mensagens.append(msg_assistant)
-    novas_mensagens.append(msg_assistant)
-
-    for tool_call in msg.tool_calls:
-        nome_func = tool_call.function.name
-        args_json = tool_call.function.arguments
-
-        try:
-            args = json.loads(args_json) if args_json else {}
-        except json.JSONDecodeError:
-            args = {}
-
-        print(f"   ⚡ Executando: {nome_func}({args})")
-
-        # Executar a função
-        func = TOOL_FUNCTIONS.get(nome_func)
-        if func:
-            try:
-                resultado = func(**args)
-            except Exception as e:
-                resultado = f"Erro ao executar {nome_func}: {str(e)}"
-        else:
-            resultado = f"Ferramenta '{nome_func}' não encontrada."
-
-        print(f"   ✅ Resultado: {str(resultado)[:100]}...")
-
-        # Adicionar resultado da ferramenta ao histórico
-        msg_tool = {
-            "role": "tool",
-            "tool_call_id": tool_call.id,
-            "content": str(resultado)
-        }
-        mensagens.append(msg_tool)
-        novas_mensagens.append(msg_tool)
-
-    # 2ª chamada — Groq formula resposta natural com o resultado da ferramenta
-    resposta_final = client.chat.completions.create(
-        model="llama-3.1-8b-instant",
-        messages=mensagens,
-        temperature=0.2,
-        max_tokens=300,
-    )
-
-    texto_final = resposta_final.choices[0].message.content.strip()
-    novas_mensagens.append({"role": "assistant", "content": texto_final})
+    novas_mensagens = [{"role": "assistant", "content": texto_final}]
 
     return texto_final, novas_mensagens
 
@@ -294,23 +227,23 @@ async def iniciar_assistente() -> None:
                     await falar_texto(f"Ainda não sei muito sobre você, {nome_atual}. Vamos conversar mais!")
                 continue
 
-            # === ENVIAR AO GROQ (com ferramentas) ===
+            # === ENVIAR AO LLM (Groq ou LM local) ===
             historico_curto.append({"role": "user", "content": comando})
             if len(historico_curto) > 30:
                 historico_curto = historico_curto[-30:]
 
             try:
-                print("🧠 [Groq] Processando...")
+                print("🧠 [LangGraph] Processando agente...")
                 resposta_texto, novas_msgs = await asyncio.wait_for(
                     asyncio.get_event_loop().run_in_executor(
                         None,
-                        lambda: perguntar_groq(historico_curto, nome_atual, perfil)
+                        lambda: perguntar_langchain(historico_curto, nome_atual, perfil)
                     ),
-                    timeout=45.0  # 45s — LLM (2 chamadas) e ferramentas podem demorar mais
+                    timeout=120.0  # 120s — LLM local e ferramentas podem demorar mais
                 )
 
                 historico_curto.extend(novas_msgs)
-                print(f"🧠 [Groq]: {resposta_texto[:120]}...")
+                print(f"🧠 [LangGraph]: {resposta_texto[:120]}...")
                 
                 # Falar e verificar se foi interrompido
                 foi_interrompido = await falar_texto(resposta_texto)
@@ -330,13 +263,13 @@ async def iniciar_assistente() -> None:
                 try:
                     perfil = await asyncio.get_event_loop().run_in_executor(
                         None,
-                        lambda: aprender(client, historico_curto, perfil)
+                        lambda: aprender(client_llm, historico_curto, perfil)
                     )
                 except Exception:
                     pass
 
             except (asyncio.TimeoutError, TimeoutError):
-                print("⏰ Groq demorou muito — abortando limite de tempo")
+                print("⏰ LLM demorou muito — abortando limite de tempo")
                 if historico_curto and historico_curto[-1]["role"] == "user":
                     historico_curto.pop()
                 await falar_texto(random.choice([
@@ -345,7 +278,7 @@ async def iniciar_assistente() -> None:
                     "Não consegui processar a tempo. Reformula pra mim?",
                 ]))
             except Exception as e:
-                print(f"❌ Erro Groq: {str(e)}")
+                print(f"❌ Erro LLM: {str(e)}")
                 if historico_curto and historico_curto[-1]["role"] == "user":
                     historico_curto.pop()
                 await falar_texto("Tive um problema aqui. Pode repetir?")
@@ -355,8 +288,31 @@ if __name__ == "__main__":
     if os.name == 'nt':
         asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
 
+    # Seleção do provedor no início
     try:
-        asyncio.run(iniciar_assistente())
-    except KeyboardInterrupt:
-        print("\nAssistente encerrado pelo usuário.")
-        fechar_microfone_global()
+        print("Escolha provedor de LLM:")
+        print("  1) Groq (requer GROQ_API_KEY no .env)")
+        print("  2) LM local (LM Studio) — exemplo: http://127.0.0.1:1234")
+        escolha = input("Iniciar com [1=groq,2=local] (padrão 1): ").strip()
+
+        if escolha in ["2", "local", "l"]:
+            # LM Studio / OpenAI Compatível
+            LM_URL = os.getenv("LOCAL_LM_URL", "http://127.0.0.1:1234/v1")
+            LM_MODEL = os.getenv("LOCAL_LM_MODEL", "qwen/qwen3-vl-4b")
+            
+            client_llm = ChatOpenAI(base_url=LM_URL, api_key="lm-studio", model=LM_MODEL, temperature=0.2)
+            print(f"Usando LangChain com LM local {LM_MODEL} em {LM_URL}")
+        else:
+            if not GROQ_API_KEY:
+                raise ValueError("⚠️ GROQ_API_KEY não encontrada no arquivo .env! Defina-a ou escolha LM local.")
+            
+            client_llm = ChatGroq(api_key=GROQ_API_KEY, model="llama-3.1-8b-instant", temperature=0.2)
+            print("Usando LangChain com o Groq.")
+
+        try:
+            asyncio.run(iniciar_assistente())
+        except KeyboardInterrupt:
+            print("\nAssistente encerrado pelo usuário.")
+            fechar_microfone_global()
+    except Exception as e:
+        print(f"Erro na inicialização: {e}")
