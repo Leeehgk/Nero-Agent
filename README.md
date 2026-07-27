@@ -1,152 +1,101 @@
-# 🤖 Nero Agent — Assistente Pessoal de IA por Voz
+# Nero local
 
-Assistente pessoal de IA ativado por voz, com **inteligência autônoma** via Groq (Llama 3.1 8B), **memória de longo prazo** e **12 ferramentas** que ele decide sozinho quando usar.
+Assistente de conversa por voz que funciona offline no Windows. O LM Studio
+gera a resposta, Faster Whisper reconhece a fala e Kokoro ONNX produz a voz.
+Nenhuma conversa é enviada para serviços externos.
 
-> Fala Português do Brasil 🇧🇷 · Voz neural Edge TTS · Roda 100% local no Windows
+## Requisitos
 
----
+- Windows 10 ou 11
+- Python 3.11
+- LM Studio 0.4 ou mais recente
+- Headset com microfone
+- NVIDIA RTX 4050 6 GB ou equivalente
 
-## ✨ Funcionalidades
+## Instalação
 
-### 🧠 Inteligência
-- **Groq + Function Calling** — O LLM analisa o que você diz e decide sozinho se precisa executar uma ação ou apenas conversar
-- **Memória de longo prazo** — Aprende fatos sobre você (nome, preferências, hábitos) e lembra entre sessões
-- **Memória de curto prazo** — Histórico das últimas 30 mensagens persistido em JSON
-- **Aprendizado contínuo** — Após cada conversa, o Groq extrai automaticamente novos fatos sobre você
+Abra PowerShell nesta pasta:
 
-### 🎤 Voz
-- **Wake Word** — Diga "Nero" para ativar (com variações de pronúncia)
-- **TTS Edge Neural** — Voz natural em Português (`pt-BR-AntonioNeural`)
-- **Interrupção por voz** — Fale durante a resposta para interromper imediatamente
-- **Microfone persistente** — Zero latência de hardware (mic aberto durante toda a sessão)
-
-### 🛠️ 12 Ferramentas Autônomas
-
-O Nero decide sozinho quando usar cada ferramenta:
-
-| Ferramenta | Comando exemplo |
-|------------|----------------|
-| 🎵 Tocar no YouTube | *"toca Red Hot no YouTube"* |
-| ⏯️ Controlar Mídia | *"pausa a música"* / *"próxima faixa"* |
-| 🔊 Alterar Volume | *"aumenta o volume"* / *"mutar"* |
-| 💻 Abrir Programa | *"abre a calculadora"* |
-| ❌ Fechar Programa | *"fecha o bloco de notas"* |
-| 📰 Notícias do Dia | *"quais são as notícias de hoje?"* |
-|  Data e Hora | *"que horas são?"* / *"que dia é hoje?"* |
-| 🌤️ Clima | *"como está o clima em São Paulo?"* |
-| 🔍 Pesquisa Web | *"pesquisa sobre inteligência artificial"* |
-| 🌐 Abrir Navegador | *"abre o GitHub"* |
-| 📸 Capturar Tela | *"tira um print"* |
-| 📝 Criar Anotação | *"anota: reunião às 15h"* |
-
-### 🗣️ Comandos de Controle por Voz
-
-| Comando | Ação |
-|---------|------|
-| *"Nero"* | Ativa o assistente (wake word) |
-| *"vai descansar"* | Volta ao stand-by |
-| *"desligar sistema"* | Encerra o programa |
-| *"o que você sabe sobre mim?"* | Lista fatos aprendidos |
-| *"limpa a memória"* / *"esquece tudo"* | Reseta memória completa |
-
----
-
-## 📁 Estrutura do Projeto
-
-```
-Eon-Agent/
-├── agente_local.py     ← Loop principal + Groq function calling
-├── ferramentas.py      ← 9 ferramentas + schemas para o LLM
-├── memoria.py          ← Memória de curto prazo + longo prazo + aprendizado
-├── audio.py            ← Microfone global, TTS Edge, wake word, interrupção
-├── config_eon.json     ← Configuração do nome do usuário
-├── memoria_nero.json   ← Memória de curto prazo (auto-gerado)
-├── perfil_nero.json    ← Memória de longo prazo — fatos aprendidos (auto-gerado)
-└── README.md
+```powershell
+Set-ExecutionPolicy -Scope Process Bypass
+.\install.ps1
 ```
 
----
+O instalador cria `.venv`, instala as dependências e baixa os modelos. A
+internet só é necessária nessa etapa.
 
-## ⚙️ Instalação
+O Kokoro usa o modelo FP32 na CPU. Nesta máquina ele iniciou o áudio
+consideravelmente mais rápido que a variante INT8, e fica isolado da GPU usada
+pelo Qwen.
 
-### Pré-requisitos
-- Python 3.10+
-- Windows 10/11
-- Microfone
+No LM Studio, mantenha o servidor em `127.0.0.1:1234`, com CORS desativado.
+Desative também **Log sensitive data**. O aplicativo carrega e aquece o Qwen
+3.5 9B instalado localmente; o Qwen 4B fica como perfil de reserva.
 
-### Dependências
+## Executar
 
-```bash
-python -m pip install groq SpeechRecognition edge-tts pygame pywhatkit pyautogui Pillow requests duckduckgo-search
+```powershell
+.\run_nero.ps1
 ```
 
----
+Esse comando inicia e verifica automaticamente o servidor local do LM Studio
+antes de abrir o Nero. Para iniciar somente o servidor:
 
-## 🚀 Como Usar
-
-```bash
-cd C:\Eon-Agent
-python agente_local.py
+```powershell
+.\start_lmstudio.ps1
 ```
 
-1. O Nero inicia e fica em **stand-by** 💤
-2. Diga **"Nero"** para ativar
-3. Converse ou peça ações naturalmente
-4. Diga **"vai descansar"** para voltar ao stand-by
-5. Diga **"desligar sistema"** para encerrar
+Ao clicar em **Encerrar**, o Nero descarrega os modelos, para a API local e
+encerra o daemon `llmster`. Para executar essa limpeza manualmente:
 
----
-
-## 🔑 Configuração
-
-### Arquivo .env
-O projeto utiliza um arquivo `.env` para gerenciar chaves de API e configurações sensíveis.
-1. Copie o arquivo `.env.example` para `.env`.
-2. Insira sua `GROQ_API_KEY` no arquivo `.env`.
-
-> [!CAUTION]
-> Nunca envie seu arquivo `.env` para o GitHub. Ele já está configurado no `.gitignore`.
-
-### Configurações Adicionais
-- **Groq**: Pegue sua chave em [console.groq.com](https://console.groq.com).
-- **Nome do Usuário**: Edite `config_eon.json`.
-
----
-
-## 🧠 Como Funciona a Inteligência
-
-### Function Calling (Intenções)
-```
-Usuário: "toca Metallica no YouTube"
-  ↓
-Groq analisa → detecta intenção → chama tocar_youtube("Metallica")
-  ↓
-Função executa → retorna resultado
-  ↓
-Groq formula resposta: "Colocando Metallica no YouTube!"
+```powershell
+.\stop_lmstudio.ps1
 ```
 
-### Aprendizado de Longo Prazo
+Espere o estado mudar de **Inicializando** para **Ouvindo**. A primeira carga
+não faz parte da medição. Fale normalmente; não é necessário dizer “Nero”.
+
+- **Pausar** desliga a captura lógica do microfone.
+- **Nova conversa** descarta o contexto mantido pelo LM Studio.
+- Para interromper uma resposta, comece a falar usando o headset.
+
+## Latência
+
+A janela mostra a última latência, p50 e p95. O tempo começa no último frame
+de voz detectado e termina na primeira escrita de áudio:
+
+```powershell
+.\.venv\Scripts\python.exe report_metrics.py
 ```
-Conversa: "me chame de Mestre"
-  ↓
-Groq responde normalmente
-  ↓
-2ª chamada (background): analisa e extrai → "O usuário quer ser chamado de Mestre"
-  ↓
-Salva em perfil_nero.json → próxima sessão já lembra
+
+A meta só é declarada atingida após 30 turnos válidos, com p50 até 700 ms e
+p95 até 1.000 ms. Os registros em `logs/metrics.jsonl` contêm apenas tempos,
+contagens de tokens e tipos de erro — nunca transcrições ou áudio.
+
+## Ajustes
+
+Edite `settings.toml` para selecionar dispositivos de áudio ou calibrar o VAD.
+O valor `-1` usa o dispositivo padrão do Windows. Para listar dispositivos:
+
+```powershell
+.\.venv\Scripts\python.exe -c "import pyaudio; p=pyaudio.PyAudio(); [print(i, p.get_device_info_by_index(i)['name']) for i in range(p.get_device_count())]; p.terminate()"
 ```
 
----
+O perfil atual prioriza inteligência e mantém o Qwen 9B mesmo quando a meta de
+latência falhar (`auto_fallback = false`). O Qwen 4B permanece instalado para
+troca manual. O Whisper `tiny` também está disponível, mas só deve substituir o
+`base` após validação de transcrição.
 
-## 🛣️ Roadmap
+## Privacidade e recuperação
 
-- [x] Groq como cérebro (substituiu Google AI)
-- [x] Wake word + TTS + interrupção por voz
-- [x] Memória de curto prazo persistente
-- [x] Memória de longo prazo com aprendizado via LLM
-- [x] Function calling — 9 ferramentas autônomas
-- [ ] Controle de abas do Chrome por nome
-- [ ] Modo programação (IDE automation)
-- [ ] Visão computacional (OCR/Tesseract)
-- [ ] Rotinas automáticas baseadas em padrões do usuário
+Em execução, todos os modelos usam arquivos locais e o cliente aceita somente
+uma URL loopback para o LM Studio. O protótipo anterior está preservado em
+`_legacy_backup_20260726_nero.zip`.
+
+O roteiro para fechar a aceitação de 30 turnos, semântica, naturalidade,
+interrupção e operação sem rede está em `VALIDATION.md`.
+
+Se o Nero mostrar que o microfone está sem sinal, pressione uma vez o botão
+`MIC` do H510-PRO, confirme que a haste removível está totalmente encaixada e
+prefira o modo 2,4 GHz pelo dongle USB. O aplicativo rejeita áudio quase
+silencioso em vez de deixar o Whisper inventar palavras.

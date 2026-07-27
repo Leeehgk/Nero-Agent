@@ -1,0 +1,44 @@
+[app]
+log_path = "logs/metrics.jsonl"
+
+[llm]
+base_url = "http://127.0.0.1:1234"
+model = "qwen3.5-9b-uncensored-hauhaucs-aggressive"
+fallback_model = "qwen/qwen3.5-4b"
+context_length = 4096
+max_output_tokens = 100
+temperature = 0.55
+top_p = 0.9
+repeat_penalty = 1.05
+auto_fallback = false
+
+[stt]
+model_path = "models/faster-whisper-base"
+fallback_model_path = "models/faster-whisper-tiny"
+cpu_threads = 8
+partial_interval_ms = 1500
+final_beam_size = 3
+
+[tts]
+model_path = "models/kokoro-v1.0.onnx"
+voices_path = "models/voices-v1.0.bin"
+voice = "pm_alex"
+language = "pt-br"
+speed = 1.0
+
+[audio]
+input_device = -1
+output_device = -1
+input_device_name = "H510-PRO"
+output_device_name = "Fones de ouvido (H510-PRO)"
+sample_rate = 16000
+frame_samples = 512
+vad_threshold = 0.55
+min_speech_ms = 96
+end_silence_ms = 384
+barge_in_ms = 128
+pre_roll_ms = 160
+
+[latency]
+target_p50_ms = 700
+target_p95_ms = 1000

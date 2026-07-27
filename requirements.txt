@@ -1,0 +1,10 @@
+faster-whisper==1.2.1
+httpx==0.28.1
+kokoro-onnx==0.5.0
+numpy==2.4.6
+onnxruntime==1.28.0
+PyAudio==0.2.14
+soundfile==0.14.0
+
+# Desenvolvimento
+pytest==9.1.1
