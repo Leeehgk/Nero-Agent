@@ -60,6 +60,10 @@ class NeroController:
         if self._loop:
             self._loop.call_soon_threadsafe(self._new_conversation)
 
+    def change_voice(self, voice: str) -> None:
+        if self._loop:
+            self._loop.call_soon_threadsafe(self._change_voice, voice)
+
     def stop(self) -> None:
         if self._loop and not self._loop.is_closed() and self._shutdown:
             self._loop.call_soon_threadsafe(self._shutdown.set)
@@ -89,6 +93,10 @@ class NeroController:
         await self.llm.load_model()
         await self.llm.warmup()
         await self.tts.warmup()
+        self._emit(
+            "voices",
+            {"available": self.tts.voices, "selected": self.tts.voice},
+        )
 
         self.mic = MicrophoneEngine(
             self.settings.audio,
@@ -98,7 +106,11 @@ class NeroController:
             on_error=self._on_audio_error,
         )
         self.mic.start(self.settings.stt.partial_interval_ms)
-        self._emit("detail", f"Microfone: {self.mic.input_device_name}")
+        self._emit(
+            "detail",
+            f"Microfone: {self.mic.input_device_name} · "
+            f"Whisper {self.settings.stt.model_path.name.removeprefix('faster-whisper-')}",
+        )
         self._emit("state", "Ouvindo")
 
         await self._shutdown.wait()
@@ -180,6 +192,17 @@ class NeroController:
         self._emit("clear")
         self._emit("state", "Ouvindo")
         self._emit("detail", "Nova conversa, pode falar")
+
+    def _change_voice(self, voice: str) -> None:
+        try:
+            if self._active_task and not self._active_task.done():
+                self._cancel_active()
+            self.tts.set_voice(voice)
+            self._emit("voice_changed", voice)
+            self._emit("state", "Ouvindo")
+            self._emit("detail", f"Voz alterada para {voice}")
+        except ValueError as exc:
+            self._emit("error", str(exc))
 
     def _fatal(self, error: Exception) -> None:
         self._emit("error", str(error))

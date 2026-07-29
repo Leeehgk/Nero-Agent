@@ -112,21 +112,60 @@ class MicrophoneEngine:
                         pass
             return (None, pyaudio.paContinue)
 
-        self._stream = self._audio.open(
-            format=pyaudio.paInt16,
-            channels=1,
-            rate=self.settings.sample_rate,
-            input=True,
-            input_device_index=self.input_device,
-            frames_per_buffer=self.settings.frame_samples,
-            stream_callback=callback,
-            start=False,
-        )
+        self._stream = self._open_input_stream(callback)
         self._thread = threading.Thread(
             target=self._worker, name="nero-vad", daemon=True
         )
         self._thread.start()
         self._stream.start_stream()
+
+    def _open_input_stream(self, callback) -> pyaudio.Stream:
+        def open_device(index: int | None) -> pyaudio.Stream:
+            return self._audio.open(
+                format=pyaudio.paInt16,
+                channels=1,
+                rate=self.settings.sample_rate,
+                input=True,
+                input_device_index=index,
+                frames_per_buffer=self.settings.frame_samples,
+                stream_callback=callback,
+                start=False,
+            )
+
+        error: OSError | None = None
+        # O endpoint WASAPI do Windows pode ficar temporariamente indisponível
+        # enquanto os modelos são carregados. Uma nova tentativa costuma abrir
+        # o mesmo dispositivo sem perder o caminho nativo de 16 kHz.
+        for _ in range(3):
+            try:
+                return open_device(self.input_device)
+            except OSError as exc:
+                error = exc
+                time.sleep(0.2)
+
+        fallback = self._find_mme_input()
+        if fallback is not None and fallback[0] != self.input_device:
+            self.input_device, self.input_device_name = fallback
+            return open_device(self.input_device)
+
+        assert error is not None
+        raise error
+
+    def _find_mme_input(self) -> tuple[int, str] | None:
+        if self.settings.input_device is not None:
+            return None
+        needle = (self.settings.input_device_name or "").casefold()
+        if not needle:
+            return None
+        for index in range(self._audio.get_device_count()):
+            info = self._audio.get_device_info_by_index(index)
+            if (
+                int(info.get("hostApi", -1)) == 0
+                and int(info.get("maxInputChannels", 0)) > 0
+                and needle in str(info.get("name", "")).casefold()
+            ):
+                return int(info["index"]), str(info["name"])
+        return None
 
     def set_enabled(self, enabled: bool) -> None:
         if enabled:
@@ -202,7 +241,8 @@ class MicrophoneEngine:
                     self._partial_interval_ms * self.settings.sample_rate / 1000
                 )
                 if (
-                    tracker.speaking
+                    self._partial_interval_ms > 0
+                    and tracker.speaking
                     and samples - last_partial_samples >= interval_samples
                     and samples >= self.settings.sample_rate * 2
                 ):

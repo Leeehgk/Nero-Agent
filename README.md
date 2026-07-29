@@ -57,6 +57,7 @@ não faz parte da medição. Fale normalmente; não é necessário dizer “Nero
 
 - **Pausar** desliga a captura lógica do microfone.
 - **Nova conversa** descarta o contexto mantido pelo LM Studio.
+- **Voz** alterna entre as vozes locais em português sem reiniciar.
 - Para interromper uma resposta, comece a falar usando o headset.
 
 ## Latência
@@ -83,8 +84,12 @@ O valor `-1` usa o dispositivo padrão do Windows. Para listar dispositivos:
 
 O perfil atual prioriza inteligência e mantém o Qwen 9B mesmo quando a meta de
 latência falhar (`auto_fallback = false`). O Qwen 4B permanece instalado para
-troca manual. O Whisper `tiny` também está disponível, mas só deve substituir o
-`base` após validação de transcrição.
+troca manual. O Whisper `small` multilíngue é o perfil principal de
+reconhecimento. O `base` permanece instalado como opção de menor consumo.
+
+O seletor mostra as vozes portuguesas incluídas no Kokoro: Dora, Alex e Santa.
+A voz inicial continua configurável em `[tts].voice`, sempre com
+`language = "pt-br"`.
 
 ## Privacidade e recuperação
 

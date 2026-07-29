@@ -46,16 +46,23 @@ def resolve_audio_device(
                 f"{kind.capitalize()} contendo '{name_contains}' não encontrado. "
                 "Conecte o headset ou ajuste settings.toml."
             )
-        matches.sort(
-            key=lambda item: (
-                # MME (host API 0) é o backend mais estável para callbacks
-                # contínuos nos headsets testados no Windows.
-                int(item.get("hostApi", -1)) != 0,
-                abs(float(item.get("defaultSampleRate", 0)) - preferred_rate),
+        def score(item: dict[str, Any]) -> tuple[float, int, int, int]:
+            host_api = int(item.get("hostApi", -1))
+            # O endpoint WASAPI do H510-PRO é instável quando Whisper e Kokoro
+            # carregam juntos. MME oferece captura e reprodução compartilhadas
+            # e converte as taxas exigidas por ambos sem bloquear a inicialização.
+            host_score = {0: 0, 1: 1, 2: 2, 3: 3}.get(host_api, 4)
+            rate_score = abs(
+                float(item.get("defaultSampleRate", 0)) - preferred_rate
+            )
+            return (
+                host_score,
+                rate_score,
                 len(str(item.get("name", ""))),
                 int(item["index"]),
             )
-        )
+
+        matches.sort(key=score)
         selected = matches[0]
         return int(selected["index"]), str(selected["name"])
 

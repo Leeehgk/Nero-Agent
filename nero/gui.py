@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import queue
 import tkinter as tk
-from tkinter import messagebox
+from tkinter import messagebox, ttk
 
 from nero.config import AppSettings
 from nero.controller import NeroController, UIEvent
@@ -33,6 +33,7 @@ class NeroWindow:
         self.controller = NeroController(settings, self.events)
         self._paused = False
         self._closing = False
+        self._voice_ids: dict[str, str] = {}
         self._build()
         self.root.protocol("WM_DELETE_WINDOW", self._close)
 
@@ -100,6 +101,23 @@ class NeroWindow:
             controls, "Pausar", self._toggle_pause, COLORS["accent"]
         )
         self.pause_button.pack(side="left")
+        voice_box = tk.Frame(controls, bg=COLORS["bg"])
+        voice_box.pack(side="left", padx=(10, 0))
+        tk.Label(
+            voice_box,
+            text="Voz",
+            font=("Segoe UI", 9),
+            fg=COLORS["muted"],
+            bg=COLORS["bg"],
+        ).pack(side="left", padx=(0, 6))
+        self.voice_selector = ttk.Combobox(
+            voice_box,
+            state="disabled",
+            width=20,
+            font=("Segoe UI", 10),
+        )
+        self.voice_selector.pack(side="left")
+        self.voice_selector.bind("<<ComboboxSelected>>", self._select_voice)
         self._button(
             controls, "Nova conversa", self.controller.new_conversation, COLORS["panel_alt"]
         ).pack(side="left", padx=10)
@@ -211,6 +229,10 @@ class NeroWindow:
         elif event.kind == "paused":
             self._paused = bool(event.value)
             self.pause_button.configure(text="Retomar" if self._paused else "Pausar")
+        elif event.kind == "voices":
+            self._show_voices(event.value)
+        elif event.kind == "voice_changed":
+            self._select_voice_id(str(event.value))
         elif event.kind == "clear":
             self._set_text(self.user_text, "")
             self._set_text(self.nero_text, "")
@@ -251,6 +273,24 @@ class NeroWindow:
     def _toggle_pause(self) -> None:
         self.controller.toggle_pause()
 
+    def _show_voices(self, value: dict) -> None:
+        voices = list(value.get("available", ()))
+        labels = [_voice_label(voice) for voice in voices]
+        self._voice_ids = dict(zip(labels, voices))
+        self.voice_selector.configure(values=labels, state="readonly")
+        self._select_voice_id(str(value.get("selected", "")))
+
+    def _select_voice_id(self, voice: str) -> None:
+        for label, voice_id in self._voice_ids.items():
+            if voice_id == voice:
+                self.voice_selector.set(label)
+                return
+
+    def _select_voice(self, _event=None) -> None:
+        voice = self._voice_ids.get(self.voice_selector.get())
+        if voice:
+            self.controller.change_voice(voice)
+
     def _close(self) -> None:
         if self._closing:
             return
@@ -263,3 +303,12 @@ class NeroWindow:
 
 def _milliseconds(value) -> str:
     return f"{float(value):.0f} ms" if isinstance(value, (int, float)) else "—"
+
+
+def _voice_label(voice: str) -> str:
+    labels = {
+        "pf_dora": "Dora — feminina",
+        "pm_alex": "Alex — masculina",
+        "pm_santa": "Santa — masculina",
+    }
+    return labels.get(voice, voice)

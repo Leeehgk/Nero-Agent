@@ -91,8 +91,8 @@ def main() -> None:
     MODELS.mkdir(exist_ok=True)
     for filename, url in KOKORO_FILES.items():
         download_file(url, MODELS / filename)
+    download_whisper("Systran/faster-whisper-small", "faster-whisper-small")
     download_whisper("Systran/faster-whisper-base", "faster-whisper-base")
-    download_whisper("Systran/faster-whisper-tiny", "faster-whisper-tiny")
     download_lm_models()
     print("\nModelos instalados. O Nero pode funcionar sem internet.")
 

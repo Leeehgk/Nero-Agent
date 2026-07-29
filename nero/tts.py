@@ -14,6 +14,11 @@ from nero.config import AudioSettings, TTSSettings
 from nero.devices import resolve_audio_device
 
 
+def portuguese_voices(voices: list[str]) -> list[str]:
+    """Retorna somente as vozes treinadas para português."""
+    return sorted(voice for voice in voices if voice.startswith(("pf_", "pm_")))
+
+
 class AudioPlayer:
     def __init__(self, settings: AudioSettings) -> None:
         self._audio = pyaudio.PyAudio()
@@ -83,6 +88,8 @@ class SpeechSynthesizer:
         self.settings = settings
         self.player = AudioPlayer(audio_settings)
         self._kokoro: Kokoro | None = None
+        self._voice = settings.voice
+        self._voices: list[str] = []
 
     def start(self) -> None:
         missing = [
@@ -106,8 +113,22 @@ class SpeechSynthesizer:
             session,
             str(self.settings.voices_path),
         )
-        if self.settings.voice not in self._kokoro.get_voices():
-            raise RuntimeError(f"Voz Kokoro desconhecida: {self.settings.voice}")
+        self._voices = portuguese_voices(self._kokoro.get_voices())
+        if self._voice not in self._voices:
+            raise RuntimeError(f"Voz Kokoro PT-BR desconhecida: {self._voice}")
+
+    @property
+    def voice(self) -> str:
+        return self._voice
+
+    @property
+    def voices(self) -> tuple[str, ...]:
+        return tuple(self._voices)
+
+    def set_voice(self, voice: str) -> None:
+        if voice not in self._voices:
+            raise ValueError(f"Voz PT-BR indisponível: {voice}")
+        self._voice = voice
 
     async def warmup(self) -> None:
         if self._kokoro is None:
@@ -115,7 +136,7 @@ class SpeechSynthesizer:
         await asyncio.to_thread(
             self._kokoro.create,
             "Pronto para conversar.",
-            self.settings.voice,
+            self._voice,
             self.settings.speed,
             self.settings.language,
         )
@@ -129,11 +150,12 @@ class SpeechSynthesizer:
     ) -> bool:
         if self._kokoro is None:
             raise RuntimeError("Kokoro não inicializado")
+        voice = self._voice
         first_pcm = True
         first_audio = True
         async for samples, sample_rate in self._kokoro.create_stream(
             text,
-            self.settings.voice,
+            voice,
             self.settings.speed,
             self.settings.language,
         ):

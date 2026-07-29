@@ -10,6 +10,8 @@ def test_default_settings_are_local() -> None:
     assert settings.llm.base_url == "http://127.0.0.1:1234"
     assert settings.audio.frame_samples == 512
     assert settings.audio.input_device_name == "H510-PRO"
+    assert settings.stt.model_path.name == "faster-whisper-small"
+    assert settings.stt.partial_interval_ms == 0
 
 
 def test_remote_lm_url_is_rejected(tmp_path: Path) -> None:

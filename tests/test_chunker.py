@@ -24,11 +24,9 @@ def test_first_short_sentence_is_emitted_immediately() -> None:
     assert chunker.feed("Tudo certo por aqui. ") == ["Tudo certo por aqui."]
 
 
-def test_first_chunk_is_bounded_without_punctuation() -> None:
+def test_first_chunk_is_not_cut_after_only_six_words() -> None:
     chunker = SpeechChunker(min_words=10, max_words=18, first_max_words=6)
-    assert chunker.feed("um dois três quatro cinco seis sete") == [
-        "um dois três quatro cinco seis"
-    ]
+    assert chunker.feed("um dois três quatro cinco seis sete") == []
 
 
 def test_short_interjection_waits_for_sentence_end() -> None:
@@ -36,3 +34,17 @@ def test_short_interjection_waits_for_sentence_end() -> None:
     assert chunker.feed("Claro, estou te ouvindo. ") == [
         "Claro, estou te ouvindo."
     ]
+
+
+def test_comma_does_not_split_synthesis() -> None:
+    chunker = SpeechChunker(max_words=18)
+    assert chunker.feed("Claro, posso explicar isso com calma") == []
+    assert chunker.feed(" e sem pausas artificiais.") == [
+        "Claro, posso explicar isso com calma e sem pausas artificiais."
+    ]
+
+
+def test_sanitizer_normalizes_punctuation_spacing() -> None:
+    assert sanitize_for_speech("Olá,mundo ! Tudo bem?Sim.") == (
+        "Olá, mundo! Tudo bem? Sim."
+    )

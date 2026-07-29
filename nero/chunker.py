@@ -17,7 +17,9 @@ _EMOJI = re.compile(
 def sanitize_for_speech(text: str) -> str:
     text = _MARKDOWN.sub("", text)
     text = _EMOJI.sub("", text)
-    return re.sub(r"\s+", " ", text).strip()
+    text = re.sub(r"\s+", " ", text).strip()
+    text = re.sub(r"\s+([,.;:!?])", r"\1", text)
+    return re.sub(r"([,.;:!?])(?=\w)", r"\1 ", text)
 
 
 class SpeechChunker:
@@ -26,8 +28,8 @@ class SpeechChunker:
     def __init__(
         self,
         min_words: int = 10,
-        max_words: int = 18,
-        first_max_words: int = 6,
+        max_words: int = 28,
+        first_max_words: int = 14,
     ) -> None:
         self.min_words = min_words
         self.max_words = max_words
@@ -59,25 +61,11 @@ class SpeechChunker:
                 boundary = match.end()
                 break
 
-            if boundary is None:
-                comma_words = 4 if self._first_chunk else self.min_words
-                for match in re.finditer(r",(?:\s+|$)", text):
-                    words_before = len(re.findall(r"\S+", text[: match.end()]))
-                    if words_before >= comma_words:
-                        boundary = match.end()
-                        break
-
-            if (
-                boundary is None
-                and self._first_chunk
-                and len(words) >= self.first_max_words
-            ):
-                boundary = words[self.first_max_words - 1].end()
-
             if boundary is None and len(words) >= self.max_words:
                 search_end = words[self.max_words - 1].end()
-                comma = text.rfind(",", 0, search_end + 1)
-                boundary = comma + 1 if comma > 0 else search_end
+                # Cada chunk inicia uma síntese separada. Cortar em vírgulas ou
+                # após poucas palavras cria uma pausa artificial no meio da ideia.
+                boundary = search_end
 
             if boundary is None:
                 if force:
